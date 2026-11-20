@@ -1,0 +1,9 @@
+[package]
+name = "xasm-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "XASM bytecode compiler core: lexer, labels, legacy/community targets, ROM encoding"
+
+[dependencies]

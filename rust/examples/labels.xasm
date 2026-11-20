@@ -1,0 +1,7 @@
+-- Code first, data after exit.  @ptr is a 4-byte address.
+[main]
+mov @ptr @msg
+putc @ptr
+exit
+[msg] "Hello\n"
+[ptr] 0x00 0x00 0x00 0x00

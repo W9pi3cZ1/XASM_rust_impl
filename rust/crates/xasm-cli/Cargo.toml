@@ -1,0 +1,15 @@
+[package]
+name = "xasm-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "XASM compiler command line tool"
+
+[[bin]]
+name = "xasm"
+path = "src/main.rs"
+
+[dependencies]
+xasm-core = { path = "../xasm-core" }
+clap = { version = "4", features = ["derive"] }

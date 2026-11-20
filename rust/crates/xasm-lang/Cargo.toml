@@ -1,0 +1,16 @@
+[package]
+name = "xasm-lang"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "XPL: a small high-level language compiling to XASM bytecode"
+
+[[bin]]
+name = "xplc"
+path = "src/bin/xplc.rs"
+
+[dependencies]
+xasm-core = { path = "../xasm-core" }
+xasm-vm = { path = "../xasm-vm" }
+clap = { version = "4", features = ["derive"] }

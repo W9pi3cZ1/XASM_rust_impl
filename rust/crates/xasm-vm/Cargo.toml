@@ -1,0 +1,18 @@
+[package]
+name = "xasm-vm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "XASM virtual machine compatible with the original XASM1, plus community opcodes"
+
+[[bin]]
+name = "xasm-run"
+path = "src/bin/xasm-run.rs"
+
+[dependencies]
+xasm-core = { path = "../xasm-core" }
+clap = { version = "4", features = ["derive"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

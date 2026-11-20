@@ -1,0 +1,16 @@
+let n = 2;
+while (n <= 50) {
+    let d = 2;
+    let prime = true;
+    while (d * d <= n) {
+        if (n % d == 0) {
+            prime = false;
+        }
+        d = d + 1;
+    }
+    if (prime) {
+        print(n, " ");
+    }
+    n = n + 1;
+}
+println();
