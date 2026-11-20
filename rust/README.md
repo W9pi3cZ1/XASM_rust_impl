@@ -2,7 +2,7 @@
 
 用 Rust 重写的 XASM 编译器与虚拟机。默认目标是最初的 **XASM1（Linux amd64 二进制）**，同时兼容社区重建版（community rebuild）的源码语法。
 
-本目录是一个独立的 Rust 项目，也可以单独作为 git 仓库；当前工作区根目录把它作为 `rust/` 子目录提交。手写的 community 实现在 `../XASM_Community_Rebuild`，两边分开维护。
+本目录是一个独立的 Rust 项目，也可以单独作为 git 仓库；当前工作区根目录把它作为 `rust/` 子目录提交。手写的 community 实现是根目录的 git submodule：`../XASM_Community_Rebuild`。
 
 - `xasm`：编译器。输出与原始编译器相同的 `opcode + 4 字节大端地址` ROM 格式。
 - `xasm-run`：虚拟机。默认复刻原始 `XASM1` 语义，并实现 community 的 6 条位运算指令，便于开发调试。
