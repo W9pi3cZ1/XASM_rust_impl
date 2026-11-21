@@ -35,7 +35,14 @@ fn original_vm_runs_xpl_program() {
             println();
             poke(0x8000, 65);
             puthex_at(0x8000);
-            println();"#
+            println();
+
+            fn add(a, b) { return a + b; }
+            let a[3];
+            a[0] = 7;
+            a[1] = 8;
+            a[2] = 9;
+            print(add(a[0], add(a[1], a[2])), "\n");"#
             .to_vec(),
     );
     let generated = compile(&source, &Options::default()).expect("compile XPL");
@@ -63,6 +70,6 @@ fn original_vm_runs_xpl_program() {
     );
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "Hello from XPL on the original VM!\n3 2 1 \n41\n"
+        "Hello from XPL on the original VM!\n3 2 1 \n41\n24\n"
     );
 }

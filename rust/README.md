@@ -259,7 +259,7 @@ xasm-run -i <ROM> [OPTIONS]
 
 ## XPL 高层语言
 
-除了直接写 XASM，本项目还带一个面向 XASM 的小型高层语言 **XPL**。它有变量、作用域、表达式、`if/else`、`while`、字符串/数字输出和 `read_int`/`read_char`，并编译成只含原始 XASM1 指令的 ROM。
+除了直接写 XASM，本项目还带一个面向 XASM 的小型高层语言 **XPL**。它有变量、作用域、函数、数组、表达式、`if/else`、`while`、字符串/数字输出和 `read_int`/`read_char`，并编译成只含原始 XASM1 指令的 ROM。
 
 ```xpl
 // examples/xpl/fizzbuzz.xpl
@@ -283,13 +283,16 @@ while (i <= 100) {
 ./target/release/xplc -i examples/xpl/fizzbuzz.xpl -o fizzbuzz.bin --run
 ./target/release/xplc -i examples/xpl/hello.xpl -o hello.bin --print-asm
 
-# 交互式内存编辑器（终端里用 h/l/j/k、方向键、0-9a-f、g、q）
+# 交互式内存编辑器（终端里用 h/l/j/k、0-9a-f、q）
 ./target/release/xplc -i examples/xpl/memedit.xpl -o memedit.bin --run
+
+# 整数 spigot 算法不断计算、输出 pi（函数 + 数组）
+./target/release/xplc -i examples/xpl/pi.xpl -o pi.bin --run
 ```
 
-XPL 还提供 `peek(addr)`、`poke(addr, value)`、`puthex_at(addr)`、`puthex(expr)`、`read_hex()`，所以可以直接写内存查看/编辑工具。`examples/xpl/memedit.xpl` 是一个可交互的内存编辑器：alternate screen + 清屏、16 字节一行、两位补零十六进制、光标反显，支持光标移动、按字节编辑和退出。它依赖 `getc` 的原始终端模式，`xasm-run` 已经实现。该示例在 Rust VM 上验证；原始 `XASM1` 对这种较大的交互程序存在布局敏感的未定义行为，详见 [docs/xpl.md](docs/xpl.md)。
+XPL 还提供 `peek(addr)`、`poke(addr, value)`、`puthex_at(addr)`、`puthex(expr)`、`read_hex()`，所以可以直接写内存查看/编辑工具。`examples/xpl/memedit.xpl` 是一个可交互的内存编辑器：alternate screen + 清屏、16 字节一行、两位补零十六进制、光标反显，支持光标移动、按字节编辑和退出。它依赖 `getc` 的原始终端模式，`xasm-run` 已经实现；Rust VM 和原始 `XASM1` 上都验证过。
 
-XPL 的语法、语义、生成模型和限制见 [docs/xpl.md](docs/xpl.md)。它没有引入新的运行时：变量/临时变量都是数据段里的 cell，字符串用长度循环打印，所有跳转共用一个 `@__jmp` cell。
+XPL 的语法、语义、生成模型和限制见 [docs/xpl.md](docs/xpl.md)。它没有引入新的运行时：变量/临时变量都是数据段里的 cell，字符串用长度循环打印，函数使用静态参数/返回槽，数组是连续 cell，所有跳转共用一个 `@__jmp` cell。
 
 原版 `XASM1` 还存在一个 dispatch fallthrough bug：`copy`/`geta`/`>`/`<` 之后可能把操作数字节当成 opcode，导致布局敏感崩溃；XPL 通过 NOP 填充和 256 字节数据对齐规避，详见 [docs/xasm1-dispatch-bug.md](docs/xasm1-dispatch-bug.md)。最小复现实例（`temp.asm` + 原版 `compile` 生成的 `disk.bin`）在 [repro/](repro/)。
 

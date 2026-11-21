@@ -231,3 +231,56 @@ fn peek_and_padded_hex() {
     .unwrap();
     assert_eq!(output, "05\n");
 }
+
+#[test]
+fn functions_and_arrays() {
+    let (output, _) = run(
+        r#"fn add(a, b) { return a + b; }
+           fn twice(x) { return add(x, x); }
+           let a[5];
+           let i = 0;
+           while (i < 5) {
+               a[i] = i * i;
+               i = i + 1;
+           }
+           print(add(a[3], twice(a[2])), "\n");"#,
+        b"",
+    )
+    .unwrap();
+    assert_eq!(output, "17\n");
+}
+
+#[test]
+fn function_default_return_and_local_array() {
+    let (output, _) = run(
+        r#"fn zero() { }
+           fn sum() {
+               let a[3];
+               a[0] = 2;
+               a[1] = 3;
+               a[2] = 4;
+               return a[0] + a[1] + a[2];
+           }
+           print(zero(), " ", sum(), "\n");"#,
+        b"",
+    )
+    .unwrap();
+    assert_eq!(output, "0 9\n");
+}
+
+#[test]
+fn recursive_function_is_rejected() {
+    let error = compile_rom(
+        r#"fn f(n) { return f(n - 1); }
+           print(f(3), "\n");"#,
+    )
+    .unwrap_err();
+    assert!(error.contains("recursive call"), "{error}");
+}
+
+#[test]
+fn pi_example_compiles() {
+    let source = include_str!("../../../examples/xpl/pi.xpl");
+    let rom = compile_rom(source).unwrap();
+    assert!(!rom.is_empty());
+}

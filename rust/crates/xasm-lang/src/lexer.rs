@@ -10,6 +10,8 @@ pub enum TokenKind {
     Str(Vec<u8>),
 
     Let,
+    Fn,
+    Return,
     If,
     Else,
     While,
@@ -30,6 +32,8 @@ pub enum TokenKind {
     RParen,
     LBrace,
     RBrace,
+    LBracket,
+    RBracket,
     Semi,
     Comma,
 
@@ -59,6 +63,8 @@ impl TokenKind {
             TokenKind::Int { .. } => "integer",
             TokenKind::Str(_) => "string",
             TokenKind::Let => "`let`",
+            TokenKind::Fn => "`fn`",
+            TokenKind::Return => "`return`",
             TokenKind::If => "`if`",
             TokenKind::Else => "`else`",
             TokenKind::While => "`while`",
@@ -78,6 +84,8 @@ impl TokenKind {
             TokenKind::RParen => "`)`",
             TokenKind::LBrace => "`{`",
             TokenKind::RBrace => "`}`",
+            TokenKind::LBracket => "`[`",
+            TokenKind::RBracket => "`]`",
             TokenKind::Semi => "`;`",
             TokenKind::Comma => "`,`",
             TokenKind::Assign => "`=`",
@@ -234,6 +242,8 @@ impl<'a> Lexer<'a> {
             b')' => self.single(TokenKind::RParen, start),
             b'{' => self.single(TokenKind::LBrace, start),
             b'}' => self.single(TokenKind::RBrace, start),
+            b'[' => self.single(TokenKind::LBracket, start),
+            b']' => self.single(TokenKind::RBracket, start),
             b';' => self.single(TokenKind::Semi, start),
             b',' => self.single(TokenKind::Comma, start),
             b'+' => self.single(TokenKind::Plus, start),
@@ -334,6 +344,8 @@ impl<'a> Lexer<'a> {
         let text = std::str::from_utf8(&self.bytes[start..self.pos]).unwrap_or("");
         let kind = match text {
             "let" => TokenKind::Let,
+            "fn" => TokenKind::Fn,
+            "return" => TokenKind::Return,
             "if" => TokenKind::If,
             "else" => TokenKind::Else,
             "while" => TokenKind::While,

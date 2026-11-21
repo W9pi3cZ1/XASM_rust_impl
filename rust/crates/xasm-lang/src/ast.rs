@@ -4,7 +4,16 @@ use xasm_core::Span;
 
 #[derive(Debug)]
 pub struct Program {
+    pub functions: Vec<Function>,
     pub stmts: Vec<Stmt>,
+}
+
+#[derive(Debug)]
+pub struct Function {
+    pub name: String,
+    pub params: Vec<String>,
+    pub body: Vec<Stmt>,
+    pub span: Span,
 }
 
 #[derive(Debug)]
@@ -18,11 +27,18 @@ pub enum StmtKind {
     Let {
         name: String,
         init: Option<Expr>,
+        array_len: Option<usize>,
     },
     Assign {
         name: String,
         value: Expr,
     },
+    AssignIndex {
+        name: String,
+        index: Expr,
+        value: Expr,
+    },
+    Return(Option<Expr>),
     If {
         cond: Expr,
         then_body: Vec<Stmt>,
@@ -77,6 +93,14 @@ pub enum ExprKind {
     ReadChar,
     ReadHex,
     Peek(Box<Expr>),
+    Call {
+        name: String,
+        args: Vec<Expr>,
+    },
+    Index {
+        name: String,
+        index: Box<Expr>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

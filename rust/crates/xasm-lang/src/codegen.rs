@@ -86,18 +86,40 @@ pub fn generate(program: &Program, memory_limit: u32) -> Result<Generated, Error
     }
 }
 
+#[derive(Clone, Debug)]
+enum Symbol {
+    Scalar(String),
+    Array { base: String, len: usize },
+}
+
+#[derive(Clone, Debug)]
+struct FunctionInfo {
+    params: Vec<String>,
+    param_labels: Vec<String>,
+    label: String,
+    retval_label: String,
+    retparam_label: String,
+}
+
 struct Codegen {
     out: String,
     /// Variable/temporary cells.  These are laid out on 256-byte boundaries.
     cells: Vec<String>,
     cell_labels: Vec<String>,
+    /// Array blocks are contiguous cells, placed after the scalar cells.
+    arrays: Vec<(String, usize)>,
+    array_labels: Vec<String>,
     strings: Vec<String>,
     string_labels: Vec<String>,
+    functions: Vec<FunctionInfo>,
+    function_map: HashMap<String, usize>,
+    current_function: Option<usize>,
     label_id: usize,
     var_id: usize,
     temp_id: usize,
     str_id: usize,
-    scopes: Vec<HashMap<String, String>>,
+    array_id: usize,
+    scopes: Vec<HashMap<String, Symbol>>,
     report: Report,
     stats: Stats,
 }
@@ -108,19 +130,62 @@ impl Codegen {
             out: String::new(),
             cells: Vec::new(),
             cell_labels: Vec::new(),
+            arrays: Vec::new(),
+            array_labels: Vec::new(),
             strings: Vec::new(),
             string_labels: Vec::new(),
+            functions: Vec::new(),
+            function_map: HashMap::new(),
+            current_function: None,
             label_id: 0,
             var_id: 0,
             temp_id: 0,
             str_id: 0,
+            array_id: 0,
             scopes: vec![HashMap::new()],
             report: Report::new(),
             stats: Stats::default(),
         }
     }
 
+    fn prepare_functions(&mut self, functions: &[Function]) -> bool {
+        for (index, function) in functions.iter().enumerate() {
+            if self.function_map.contains_key(&function.name) {
+                self.report.error(
+                    function.span,
+                    format!("function `{}` is already defined", function.name),
+                );
+                return false;
+            }
+            for (position, param) in function.params.iter().enumerate() {
+                if function.params[..position].contains(param) {
+                    self.report.error(
+                        function.span,
+                        format!("duplicate parameter `{param}` in `{}`", function.name),
+                    );
+                    return false;
+                }
+            }
+            let param_labels = function.params.iter().map(|_| self.temp()).collect();
+            let retval_label = self.temp();
+            let retparam_label = self.temp();
+            let label = format!("fn_{}", function.name);
+            self.function_map.insert(function.name.clone(), index);
+            self.functions.push(FunctionInfo {
+                params: function.params.clone(),
+                param_labels,
+                label,
+                retval_label,
+                retparam_label,
+            });
+        }
+        true
+    }
+
     fn program(&mut self, program: &Program) {
+        if !self.prepare_functions(&program.functions) {
+            return;
+        }
         // Constant used by `peek` to split a 32-bit address into bytes.
         self.emit("mov @__c256 0x00 0x00 0x01 0x00");
         for stmt in &program.stmts {
@@ -129,6 +194,37 @@ impl Codegen {
             }
         }
         self.emit("exit");
+
+        // Function bodies live after the top-level `exit`, so normal control
+        // flow cannot fall into them.  Calls jump here with `goto`.
+        for (index, function) in program.functions.iter().enumerate() {
+            if self.function_body(index, function).is_err() {
+                return;
+            }
+        }
+    }
+
+    fn function_body(&mut self, index: usize, function: &Function) -> Result<(), ()> {
+        let info = self.functions[index].clone();
+        self.emit_control_label(&info.label);
+        self.push_scope();
+        for (name, label) in info.params.iter().zip(info.param_labels.iter()) {
+            self.bind_scalar(name, label);
+        }
+        self.current_function = Some(index);
+        for stmt in &function.body {
+            if self.stmt(stmt).is_err() {
+                self.current_function = None;
+                self.pop_scope();
+                return Err(());
+            }
+        }
+        self.current_function = None;
+        // Falling off the end returns 0.
+        self.imm(&info.retval_label, 0);
+        self.emit(&format!("goto @{}", info.retparam_label));
+        self.pop_scope();
+        Ok(())
     }
 
     const CONST_LABELS: [&'static str; 7] = [
@@ -149,6 +245,11 @@ impl Codegen {
             probe.push_str("]\n");
         }
         for label in &self.cell_labels {
+            probe.push('[');
+            probe.push_str(label);
+            probe.push_str("]\n");
+        }
+        for label in &self.array_labels {
             probe.push('[');
             probe.push_str(label);
             probe.push_str("]\n");
@@ -206,6 +307,15 @@ impl Codegen {
         out.push_str("[__ptr] 0x00\n");
         out.push_str("[__cnt] 0x00\n");
         out.push_str("[__c256] 0x00\n");
+        for (label, len) in &self.arrays {
+            out.push('[');
+            out.push_str(label);
+            out.push(']');
+            for _ in 0..*len {
+                out.push_str(" 0x00");
+            }
+            out.push('\n');
+        }
         for line in &self.strings {
             out.push_str(line);
             out.push('\n');
@@ -274,22 +384,74 @@ impl Codegen {
         Ok(label)
     }
 
-    fn bind(&mut self, name: &str, label: &str) {
+    fn bind_symbol(&mut self, name: &str, symbol: Symbol) {
         self.scopes
             .last_mut()
             .unwrap()
-            .insert(name.to_owned(), label.to_owned());
+            .insert(name.to_owned(), symbol);
+    }
+
+    fn bind_scalar(&mut self, name: &str, label: &str) {
+        self.bind_symbol(name, Symbol::Scalar(label.to_owned()));
     }
 
     fn lookup(&mut self, name: &str, span: xasm_core::Span) -> Result<String, ()> {
         for scope in self.scopes.iter().rev() {
-            if let Some(label) = scope.get(name) {
-                return Ok(label.clone());
+            if let Some(symbol) = scope.get(name) {
+                return match symbol {
+                    Symbol::Scalar(label) => Ok(label.clone()),
+                    Symbol::Array { .. } => {
+                        self.report.error(
+                            span,
+                            format!("array `{name}` needs an index, e.g. `{name}[0]`"),
+                        );
+                        Err(())
+                    }
+                };
             }
         }
         self.report
             .error(span, format!("undefined variable `{name}`"));
         Err(())
+    }
+
+    fn lookup_array(&mut self, name: &str, span: xasm_core::Span) -> Result<(String, usize), ()> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(symbol) = scope.get(name) {
+                return match symbol {
+                    Symbol::Array { base, len } => Ok((base.clone(), *len)),
+                    Symbol::Scalar(_) => {
+                        self.report.error(span, format!("`{name}` is not an array"));
+                        return Err(());
+                    }
+                };
+            }
+        }
+        self.report.error(span, format!("undefined array `{name}`"));
+        Err(())
+    }
+
+    fn alloc_array(&mut self, name: &str, len: usize, span: xasm_core::Span) -> Result<(), ()> {
+        if self.scopes.last().unwrap().contains_key(name) {
+            self.report.error(
+                span,
+                format!("name `{name}` is already declared in this scope"),
+            );
+            return Err(());
+        }
+        if len > 0x80000 {
+            self.report.error(
+                span,
+                format!("array `{name}` is too large ({len} cells; max 524288)"),
+            );
+            return Err(());
+        }
+        let label = format!("a{}", self.array_id);
+        self.array_id += 1;
+        self.arrays.push((label.clone(), len));
+        self.array_labels.push(label.clone());
+        self.bind_symbol(name, Symbol::Array { base: label, len });
+        Ok(())
     }
 
     fn temp(&mut self) -> String {
@@ -324,7 +486,15 @@ impl Codegen {
 
     fn stmt(&mut self, stmt: &Stmt) -> Result<(), ()> {
         match &stmt.kind {
-            StmtKind::Let { name, init } => {
+            StmtKind::Let {
+                name,
+                init,
+                array_len,
+            } => {
+                if let Some(len) = array_len {
+                    self.alloc_array(name, *len, stmt.span)?;
+                    return Ok(());
+                }
                 let var = self.alloc_var(name, stmt.span)?;
                 match init {
                     Some(expr) => {
@@ -333,11 +503,11 @@ impl Codegen {
                         // undefined-variable error).
                         let tmp = self.temp();
                         self.expr(expr, &tmp)?;
-                        self.bind(name, &var);
+                        self.bind_scalar(name, &var);
                         self.emit(&format!("copy @{var} @{tmp}"));
                     }
                     None => {
-                        self.bind(name, &var);
+                        self.bind_scalar(name, &var);
                         self.imm(&var, 0);
                     }
                 }
@@ -348,6 +518,30 @@ impl Codegen {
                 let tmp = self.temp();
                 self.expr(value, &tmp)?;
                 self.emit(&format!("copy @{var} @{tmp}"));
+                Ok(())
+            }
+            StmtKind::AssignIndex { name, index, value } => {
+                let (base, _) = self.lookup_array(name, stmt.span)?;
+                let i = self.temp();
+                self.expr(index, &i)?;
+                let a = self.array_addr(&base, &i);
+                let v = self.temp();
+                self.expr(value, &v)?;
+                self.poke_value(&a, &v);
+                Ok(())
+            }
+            StmtKind::Return(value) => {
+                let Some(index) = self.current_function else {
+                    self.report
+                        .error(stmt.span, "`return` is only allowed inside a function");
+                    return Err(());
+                };
+                let info = self.functions[index].clone();
+                match value {
+                    Some(expr) => self.expr(expr, &info.retval_label)?,
+                    None => self.imm(&info.retval_label, 0),
+                }
+                self.emit(&format!("goto @{}", info.retparam_label));
                 Ok(())
             }
             StmtKind::If {
@@ -460,12 +654,7 @@ impl Codegen {
                 self.expr(addr, &a)?;
                 let v = self.temp();
                 self.expr(value, &v)?;
-                // Original XASM1 `lm`: target = address_of_a - *b.
-                // Set b = address_of_v - a, so target = a.
-                let b = self.temp();
-                self.emit(&format!("mov @{b} @{v}"));
-                self.emit(&format!("sub @{b} @{a}"));
-                self.emit(&format!("lm @{v} @{b}"));
+                self.poke_value(&a, &v);
                 Ok(())
             }
             StmtKind::Expr(expr) => {
@@ -553,6 +742,61 @@ impl Codegen {
                 self.peek(&a, dest);
                 Ok(())
             }
+            ExprKind::Index { name, index } => {
+                let (base, _) = self.lookup_array(name, expr.span)?;
+                let i = self.temp();
+                self.expr(index, &i)?;
+                let a = self.array_addr(&base, &i);
+                self.peek(&a, dest);
+                Ok(())
+            }
+            ExprKind::Call { name, args } => {
+                let Some(index) = self.function_map.get(name).copied() else {
+                    self.report
+                        .error(expr.span, format!("undefined function `{name}`"));
+                    return Err(());
+                };
+                let info = self.functions[index].clone();
+                if self.current_function == Some(index) {
+                    self.report.error(
+                        expr.span,
+                        format!("recursive call to `{name}` is not supported"),
+                    );
+                    return Err(());
+                }
+                if args.len() != info.params.len() {
+                    self.report.error(
+                        expr.span,
+                        format!(
+                            "function `{name}` expects {} argument(s), got {}",
+                            info.params.len(),
+                            args.len()
+                        ),
+                    );
+                    return Err(());
+                }
+                // Evaluate every argument into a caller temp first.  Nested
+                // calls may overwrite the callee's parameter cells, so the
+                // parameters are only written after all arguments are ready.
+                let mut arg_temps = Vec::with_capacity(args.len());
+                for arg in args {
+                    let temp = self.temp();
+                    self.expr(arg, &temp)?;
+                    arg_temps.push(temp);
+                }
+                for (temp, param) in arg_temps.iter().zip(info.param_labels.iter()) {
+                    self.emit(&format!("copy @{param} @{temp}"));
+                }
+                let ret = self.new_label("call_return");
+                self.emit(&format!("mov @{} @{}", info.retparam_label, ret));
+                // XASM's `goto` is indirect: the operand is the address of a
+                // cell that contains the target.  Use the shared jump cell.
+                self.emit(&format!("mov @__jmp @{}", info.label));
+                self.emit("goto @__jmp");
+                self.emit_control_label(&ret);
+                self.emit(&format!("copy @{dest} @{}", info.retval_label));
+                Ok(())
+            }
             ExprKind::ReadInt => {
                 self.imm(dest, 0);
                 self.emit(&format!("getn @{dest}"));
@@ -589,6 +833,22 @@ impl Codegen {
         self.split_byte(&q2, &q3, &b1);
 
         [q3, b1, b2, b3]
+    }
+
+    fn array_addr(&mut self, base: &str, index: &str) -> String {
+        let addr = self.temp();
+        self.emit(&format!("mov @{addr} @{base}"));
+        self.emit(&format!("add @{addr} @{index}"));
+        addr
+    }
+
+    fn poke_value(&mut self, addr: &str, value: &str) {
+        // Original XASM1 `lm`: target = address_of_a - *b.  Set
+        // b = address_of_value - addr, so target = addr.
+        let b = self.temp();
+        self.emit(&format!("mov @{b} @{value}"));
+        self.emit(&format!("sub @{b} @{addr}"));
+        self.emit(&format!("lm @{value} @{b}"));
     }
 
     /// `dest = memory[a]`, using a self-modified `lm` plus a restore.

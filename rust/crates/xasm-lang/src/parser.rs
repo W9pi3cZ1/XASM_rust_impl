@@ -69,11 +69,48 @@ impl<'a, 'r> Parser<'a, 'r> {
     }
 
     fn program(&mut self) -> Result<Program, ()> {
+        let mut functions = Vec::new();
         let mut stmts = Vec::new();
         while !self.check(&TokenKind::Eof) {
-            stmts.push(self.stmt()?);
+            if self.check(&TokenKind::Fn) {
+                functions.push(self.function()?);
+            } else {
+                stmts.push(self.stmt()?);
+            }
         }
-        Ok(Program { stmts })
+        Ok(Program { functions, stmts })
+    }
+
+    fn function(&mut self) -> Result<Function, ()> {
+        let start = self.peek().span.start;
+        self.expect(TokenKind::Fn, "to start a function")?;
+        let name_token = self.expect(TokenKind::Ident(String::new()), "after `fn`")?;
+        let name = match name_token.kind {
+            TokenKind::Ident(name) => name,
+            _ => unreachable!(),
+        };
+        self.expect(TokenKind::LParen, "after function name")?;
+        let mut params = Vec::new();
+        if !self.check(&TokenKind::RParen) {
+            loop {
+                let token = self.expect(TokenKind::Ident(String::new()), "in parameter list")?;
+                if let TokenKind::Ident(param) = token.kind {
+                    params.push(param);
+                }
+                if !self.eat(&TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
+        self.expect(TokenKind::RParen, "after parameter list")?;
+        let body = self.block()?;
+        let end = self.tokens[self.pos.saturating_sub(1)].span.end;
+        Ok(Function {
+            name,
+            params,
+            body,
+            span: Span::new(start, end),
+        })
     }
 
     fn stmt(&mut self) -> Result<Stmt, ()> {
@@ -86,13 +123,47 @@ impl<'a, 'r> Parser<'a, 'r> {
                     TokenKind::Ident(name) => name,
                     _ => unreachable!(),
                 };
+                let array_len = if self.eat(&TokenKind::LBracket) {
+                    let token = self.expect(
+                        TokenKind::Int {
+                            value: 0,
+                            hex: false,
+                        },
+                        "as array length",
+                    )?;
+                    let (value, hex) = match token.kind {
+                        TokenKind::Int { value, hex } => (value, hex),
+                        _ => unreachable!(),
+                    };
+                    let len = int_value(value, hex, token.span, self.report)?;
+                    if len <= 0 {
+                        self.report
+                            .error(token.span, "array length must be positive");
+                        return Err(());
+                    }
+                    self.expect(TokenKind::RBracket, "after array length")?;
+                    Some(len as usize)
+                } else {
+                    None
+                };
                 let init = if self.eat(&TokenKind::Assign) {
+                    if array_len.is_some() {
+                        self.report.error(
+                            self.peek().span,
+                            "array declarations cannot have an initializer",
+                        );
+                        return Err(());
+                    }
                     Some(self.expr()?)
                 } else {
                     None
                 };
                 self.expect(TokenKind::Semi, "after `let` declaration")?;
-                StmtKind::Let { name, init }
+                StmtKind::Let {
+                    name,
+                    init,
+                    array_len,
+                }
             }
             TokenKind::If => {
                 self.advance();
@@ -149,6 +220,16 @@ impl<'a, 'r> Parser<'a, 'r> {
                 self.expect(TokenKind::Semi, "after poke statement")?;
                 StmtKind::Poke { addr, value }
             }
+            TokenKind::Return => {
+                self.advance();
+                let value = if self.check(&TokenKind::Semi) {
+                    None
+                } else {
+                    Some(self.expr()?)
+                };
+                self.expect(TokenKind::Semi, "after `return`")?;
+                StmtKind::Return(value)
+            }
             TokenKind::LBrace => {
                 let body = self.block()?;
                 StmtKind::Block(body)
@@ -163,6 +244,18 @@ impl<'a, 'r> Parser<'a, 'r> {
                     let value = self.expr()?;
                     self.expect(TokenKind::Semi, "after assignment")?;
                     StmtKind::Assign { name, value }
+                } else if matches!(
+                    self.tokens.get(self.pos + 1).map(|token| &token.kind),
+                    Some(TokenKind::LBracket)
+                ) {
+                    self.advance();
+                    self.advance();
+                    let index = self.expr()?;
+                    self.expect(TokenKind::RBracket, "after array index")?;
+                    self.expect(TokenKind::Assign, "after array index")?;
+                    let value = self.expr()?;
+                    self.expect(TokenKind::Semi, "after array assignment")?;
+                    StmtKind::AssignIndex { name, index, value }
                 } else {
                     let value = self.expr()?;
                     self.expect(TokenKind::Semi, "after expression")?;
@@ -389,10 +482,37 @@ impl<'a, 'r> Parser<'a, 'r> {
             }
             TokenKind::Ident(name) => {
                 self.advance();
-                Ok(Expr {
-                    kind: ExprKind::Var(name),
-                    span: token.span,
-                })
+                if self.eat(&TokenKind::LParen) {
+                    let mut args = Vec::new();
+                    if !self.check(&TokenKind::RParen) {
+                        loop {
+                            args.push(self.expr()?);
+                            if !self.eat(&TokenKind::Comma) {
+                                break;
+                            }
+                        }
+                    }
+                    let close = self.expect(TokenKind::RParen, "after call arguments")?;
+                    Ok(Expr {
+                        kind: ExprKind::Call { name, args },
+                        span: Span::new(token.span.start, close.span.end),
+                    })
+                } else if self.eat(&TokenKind::LBracket) {
+                    let index = self.expr()?;
+                    let close = self.expect(TokenKind::RBracket, "after array index")?;
+                    Ok(Expr {
+                        kind: ExprKind::Index {
+                            name,
+                            index: Box::new(index),
+                        },
+                        span: Span::new(token.span.start, close.span.end),
+                    })
+                } else {
+                    Ok(Expr {
+                        kind: ExprKind::Var(name),
+                        span: token.span,
+                    })
+                }
             }
             TokenKind::LParen => {
                 self.advance();
