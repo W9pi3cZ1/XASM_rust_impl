@@ -107,7 +107,7 @@ struct Codegen {
     cells: Vec<String>,
     cell_labels: Vec<String>,
     /// Array blocks are contiguous cells, placed after the scalar cells.
-    arrays: Vec<(String, usize)>,
+    arrays: Vec<(String, Vec<u8>)>,
     array_labels: Vec<String>,
     strings: Vec<String>,
     string_labels: Vec<String>,
@@ -307,12 +307,12 @@ impl Codegen {
         out.push_str("[__ptr] 0x00\n");
         out.push_str("[__cnt] 0x00\n");
         out.push_str("[__c256] 0x00\n");
-        for (label, len) in &self.arrays {
+        for (label, bytes) in &self.arrays {
             out.push('[');
             out.push_str(label);
             out.push(']');
-            for _ in 0..*len {
-                out.push_str(" 0x00");
+            for byte in bytes {
+                out.push_str(&format!(" 0x{byte:02x}"));
             }
             out.push('\n');
         }
@@ -441,7 +441,13 @@ impl Codegen {
         Err(())
     }
 
-    fn alloc_array(&mut self, name: &str, len: usize, span: xasm_core::Span) -> Result<(), ()> {
+    fn alloc_array(
+        &mut self,
+        name: &str,
+        len: usize,
+        span: xasm_core::Span,
+        init: Option<&ArrayInit>,
+    ) -> Result<(), ()> {
         if self.scopes.last().unwrap().contains_key(name) {
             self.report.error(
                 span,
@@ -456,9 +462,41 @@ impl Codegen {
             );
             return Err(());
         }
+
+        let mut bytes = vec![0u8; len];
+        match init {
+            None => {}
+            Some(ArrayInit::Values(values)) => {
+                if values.len() > len {
+                    self.report.error(
+                        span,
+                        format!(
+                            "array `{name}` has {len} cells but {} initializer values",
+                            values.len()
+                        ),
+                    );
+                    return Err(());
+                }
+                bytes[..values.len()].copy_from_slice(values);
+            }
+            Some(ArrayInit::String(value)) => {
+                if value.len() > len {
+                    self.report.error(
+                        span,
+                        format!(
+                            "array `{name}` has {len} cells but string initializer is {} bytes",
+                            value.len()
+                        ),
+                    );
+                    return Err(());
+                }
+                bytes[..value.len()].copy_from_slice(value);
+            }
+        }
+
         let label = format!("a{}", self.array_id);
         self.array_id += 1;
-        self.arrays.push((label.clone(), len));
+        self.arrays.push((label.clone(), bytes));
         self.array_labels.push(label.clone());
         self.bind_symbol(name, Symbol::Array { base: label, len });
         Ok(())
@@ -500,9 +538,10 @@ impl Codegen {
                 name,
                 init,
                 array_len,
+                array_init,
             } => {
                 if let Some(len) = array_len {
-                    self.alloc_array(name, *len, stmt.span)?;
+                    self.alloc_array(name, *len, stmt.span, array_init.as_ref())?;
                     return Ok(());
                 }
                 let var = self.alloc_var(name, stmt.span)?;

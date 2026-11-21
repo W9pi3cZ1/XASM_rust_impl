@@ -28,6 +28,7 @@ pub enum StmtKind {
         name: String,
         init: Option<Expr>,
         array_len: Option<usize>,
+        array_init: Option<ArrayInit>,
     },
     Assign {
         name: String,
@@ -61,6 +62,12 @@ pub enum StmtKind {
     },
     Expr(Expr),
     Block(Vec<Stmt>),
+}
+
+#[derive(Debug)]
+pub enum ArrayInit {
+    Values(Vec<u8>),
+    String(Vec<u8>),
 }
 
 #[derive(Debug)]

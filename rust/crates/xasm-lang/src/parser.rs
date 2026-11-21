@@ -146,23 +146,62 @@ impl<'a, 'r> Parser<'a, 'r> {
                 } else {
                     None
                 };
-                let init = if self.eat(&TokenKind::Assign) {
+                let mut init = None;
+                let mut array_init = None;
+                if self.eat(&TokenKind::Assign) {
                     if array_len.is_some() {
-                        self.report.error(
-                            self.peek().span,
-                            "array declarations cannot have an initializer",
-                        );
-                        return Err(());
+                        if self.check(&TokenKind::LBracket) {
+                            self.advance();
+                            let mut values = Vec::new();
+                            if !self.check(&TokenKind::RBracket) {
+                                loop {
+                                    let token = self.expect(
+                                        TokenKind::Int {
+                                            value: 0,
+                                            hex: false,
+                                        },
+                                        "in array initializer",
+                                    )?;
+                                    let (value, hex) = match token.kind {
+                                        TokenKind::Int { value, hex } => (value, hex),
+                                        _ => unreachable!(),
+                                    };
+                                    let value = int_value(value, hex, token.span, self.report)?;
+                                    if !(0..=255).contains(&value) {
+                                        self.report.error(
+                                            token.span,
+                                            "array initializer values must be 0..255 (u8)",
+                                        );
+                                        return Err(());
+                                    }
+                                    values.push(value as u8);
+                                    if !self.eat(&TokenKind::Comma) {
+                                        break;
+                                    }
+                                }
+                            }
+                            self.expect(TokenKind::RBracket, "after array initializer")?;
+                            array_init = Some(ArrayInit::Values(values));
+                        } else if let TokenKind::Str(bytes) = self.peek().kind.clone() {
+                            self.advance();
+                            array_init = Some(ArrayInit::String(bytes));
+                        } else {
+                            self.report.error(
+                                self.peek().span,
+                                "array initializer must be `[values...]` or a string literal",
+                            );
+                            return Err(());
+                        }
+                    } else {
+                        init = Some(self.expr()?);
                     }
-                    Some(self.expr()?)
-                } else {
-                    None
-                };
+                }
                 self.expect(TokenKind::Semi, "after `let` declaration")?;
                 StmtKind::Let {
                     name,
                     init,
                     array_len,
+                    array_init,
                 }
             }
             TokenKind::If => {

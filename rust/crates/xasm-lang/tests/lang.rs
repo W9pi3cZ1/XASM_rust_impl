@@ -359,3 +359,22 @@ fn line_editor_utf8_backspace() {
     let (output, _) = run(source, b"a\xe4\xb8\xad\x7f\n").unwrap();
     assert!(output.ends_with("a\n"), "{output:?}");
 }
+
+#[test]
+fn array_compile_time_initializers() {
+    let source = include_str!("../../../examples/xpl/array_init.xpl");
+    let (output, _) = run(source, b"").unwrap();
+    assert_eq!(output, "30\nhello\n中\nff 0 1 0\n");
+}
+
+#[test]
+fn array_initializers_are_validated() {
+    let error = compile_rom(r#"let a[2] = [1, 2, 3];"#).unwrap_err();
+    assert!(error.contains("2 cells but 3"), "{error}");
+
+    let error = compile_rom(r#"let a[2] = "abc";"#).unwrap_err();
+    assert!(error.contains("2 cells but string"), "{error}");
+
+    let error = compile_rom(r#"let a[2] = [256];"#).unwrap_err();
+    assert!(error.contains("0..255"), "{error}");
+}

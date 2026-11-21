@@ -293,6 +293,9 @@ while (i <= 100) {
 ./target/release/xplc -i examples/xpl/readline.xpl -o readline.bin --run
 ./target/release/xplc -i examples/xpl/readline_utf8.xpl -o readline_utf8.bin --run
 ./target/release/xplc -i examples/xpl/readline_edit.xpl -o readline_edit.bin --run
+
+# 编译时数组初始化（整数列表 / UTF-8 字符串）
+./target/release/xplc -i examples/xpl/array_init.xpl -o array_init.bin --run
 ```
 
 XPL 还提供 `&x` / `&a` / `&a[i]` 取地址、`peek(addr)`、`poke(addr, value)`、`puthex_at(addr)`、`puthex(expr)`、`read_hex()`，所以可以直接写内存查看/编辑工具。`examples/xpl/memedit.xpl` 是一个可交互的内存编辑器：alternate screen + 清屏、16 字节一行、两位补零十六进制、光标反显，支持光标移动、按字节编辑和退出。它依赖 `getc` 的原始终端模式，`xasm-run` 已经实现；Rust VM 和原始 `XASM1` 上都验证过。
