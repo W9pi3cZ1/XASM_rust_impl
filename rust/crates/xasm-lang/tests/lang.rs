@@ -378,3 +378,36 @@ fn array_initializers_are_validated() {
     let error = compile_rom(r#"let a[2] = [256];"#).unwrap_err();
     assert!(error.contains("0..255"), "{error}");
 }
+
+#[test]
+fn bitwise_operators_use_arithmetic_lowering() {
+    let (output, _) = run(
+        r#"let a = 6;
+           let b = 3;
+           print(a & b, " ", a | b, " ", a ^ b, " ", ~a, "\n");
+           print(1 << 5, " ", -8 >> 2, " ", -1 & 0xff, "\n");
+           print(a << 2, " ", a >> 1, " ", a << 33, "\n");"#,
+        b"",
+    )
+    .unwrap();
+    assert_eq!(output, "2 7 5 -7\n32 -2 255\n24 3 12\n");
+}
+
+#[test]
+fn bitwise_precedence_and_address_of() {
+    let (output, _) = run(
+        r#"let x = 6;
+           let p = &x;
+           print(1 | 2 & 4, " ", 1 << 2 + 1, " ", peek(p) & 3, "\n");"#,
+        b"",
+    )
+    .unwrap();
+    assert_eq!(output, "1 8 2\n");
+}
+
+#[test]
+fn bitwise_example_compiles() {
+    let source = include_str!("../../../examples/xpl/bitwise.xpl");
+    let (output, _) = run(source, b"").unwrap();
+    assert!(output.starts_with("a & b = 2040608\n"), "{output}");
+}

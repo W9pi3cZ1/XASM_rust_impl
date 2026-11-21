@@ -259,7 +259,7 @@ xasm-run -i <ROM> [OPTIONS]
 
 ## XPL 高层语言
 
-除了直接写 XASM，本项目还带一个面向 XASM 的小型高层语言 **XPL**。它有变量、作用域、函数、数组、表达式、`if/else`、`while`、字符串/数字输出和 `read_int`/`read_char`，并编译成只含原始 XASM1 指令的 ROM。
+除了直接写 XASM，本项目还带一个面向 XASM 的小型高层语言 **XPL**。它有变量、作用域、函数、数组、表达式、`if/else`、`while`、位运算、字符串/数字输出和 `read_int`/`read_char`，并编译成只含原始 XASM1 指令的 ROM。位运算会用算术循环合成，不依赖 community 的 `0x41..0x46`。
 
 ```xpl
 // examples/xpl/fizzbuzz.xpl
@@ -296,6 +296,9 @@ while (i <= 100) {
 
 # 编译时数组初始化（整数列表 / UTF-8 字符串）
 ./target/release/xplc -i examples/xpl/array_init.xpl -o array_init.bin --run
+
+# 位运算（纯算术合成，原版 XASM1 可跑）
+./target/release/xplc -i examples/xpl/bitwise.xpl -o bitwise.bin --run
 ```
 
 XPL 还提供 `&x` / `&a` / `&a[i]` 取地址、`peek(addr)`、`poke(addr, value)`、`puthex_at(addr)`、`puthex(expr)`、`read_hex()`，所以可以直接写内存查看/编辑工具。`examples/xpl/memedit.xpl` 是一个可交互的内存编辑器：alternate screen + 清屏、16 字节一行、两位补零十六进制、光标反显，支持光标移动、按字节编辑和退出。它依赖 `getc` 的原始终端模式，`xasm-run` 已经实现；Rust VM 和原始 `XASM1` 上都验证过。

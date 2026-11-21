@@ -227,7 +227,7 @@ impl Codegen {
         Ok(())
     }
 
-    const CONST_LABELS: [&'static str; 7] = [
+    const CONST_LABELS: [&'static str; 9] = [
         "__zero",
         "__one",
         "__newline",
@@ -235,6 +235,8 @@ impl Codegen {
         "__ptr",
         "__cnt",
         "__c256",
+        "__two",
+        "__c32",
     ];
 
     fn probe_asm(&self) -> String {
@@ -307,6 +309,8 @@ impl Codegen {
         out.push_str("[__ptr] 0x00\n");
         out.push_str("[__cnt] 0x00\n");
         out.push_str("[__c256] 0x00\n");
+        out.push_str("[__two] 0x02\n");
+        out.push_str("[__c32] 0x20\n");
         for (label, bytes) in &self.arrays {
             out.push('[');
             out.push_str(label);
@@ -767,8 +771,27 @@ impl Codegen {
                     Ok(())
                 }
                 UnaryOp::Addr => self.address_of(inner, dest),
+                UnaryOp::BitNot => {
+                    if let ExprKind::Int(value) = &inner.kind {
+                        self.imm(dest, !*value);
+                        return Ok(());
+                    }
+                    self.expr(inner, dest)?;
+                    let tmp = self.temp();
+                    self.imm(&tmp, 0);
+                    self.emit(&format!("sub @{tmp} @{dest}"));
+                    self.emit(&format!("sub @{tmp} @__one"));
+                    self.emit(&format!("copy @{dest} @{tmp}"));
+                    Ok(())
+                }
             },
             ExprKind::Binary { op, left, right } => {
+                if let (ExprKind::Int(a), ExprKind::Int(b)) = (&left.kind, &right.kind) {
+                    if let Some(value) = const_bitwise(*op, *a, *b) {
+                        self.imm(dest, value);
+                        return Ok(());
+                    }
+                }
                 if matches!(op, BinaryOp::Div | BinaryOp::Mod)
                     && matches!(&right.kind, ExprKind::Int(0))
                 {
@@ -1031,9 +1054,154 @@ impl Codegen {
                 self.bool_cmp(">", dest, rhs, dest);
                 self.invert_bool(dest);
             }
+            BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor => {
+                self.bitwise(op, dest, rhs)?;
+            }
+            BinaryOp::Shl => self.shift_left(dest, rhs),
+            BinaryOp::Shr => self.shift_right(dest, rhs),
             BinaryOp::And | BinaryOp::Or => unreachable!("handled in expr"),
         }
         Ok(())
+    }
+
+    /// `q = floor(value / 2)`, `bit = value mod 2` (0/1) for two's-complement
+    /// bit extraction.  XASM division truncates toward zero, so negative odd
+    /// values need the adjustment.
+    fn floor_bit(&mut self, value: &str, quotient: &str, bit: &str) {
+        let q = self.temp();
+        let r = self.temp();
+        let two = self.temp();
+        self.emit(&format!("copy @{q} @{value}"));
+        self.emit(&format!("xsub @{q} @__two"));
+        self.emit(&format!("copy @{r} @{value}"));
+        self.emit(&format!("copy @{two} @{q}"));
+        self.emit(&format!("xadd @{two} @__two"));
+        self.emit(&format!("sub @{r} @{two}"));
+
+        let cond = self.temp();
+        let skip = self.new_label("floor_bit_skip");
+        self.bool_cmp(">", "__zero", &r, &cond);
+        self.emit(&format!("mov @__jmp @{skip}"));
+        self.emit_cond("=", &cond, "__zero", "__jmp");
+        self.emit(&format!("sub @{q} @__one"));
+        self.emit(&format!("add @{r} @__two"));
+        self.emit_control_label(&skip);
+
+        self.emit(&format!("copy @{quotient} @{q}"));
+        self.emit(&format!("copy @{bit} @{r}"));
+    }
+
+    /// Lower `&`, `|`, `^` to 32 arithmetic iterations.  No community opcodes
+    /// are used, so the result runs on the original XASM1.
+    fn bitwise(&mut self, op: BinaryOp, dest: &str, rhs: &str) -> Result<(), ()> {
+        let x = self.temp();
+        let y = self.temp();
+        self.emit(&format!("copy @{x} @{dest}"));
+        self.emit(&format!("copy @{y} @{rhs}"));
+
+        let res = self.temp();
+        let bit = self.temp();
+        let i = self.temp();
+        self.imm(&res, 0);
+        self.imm(&bit, 1);
+        self.imm(&i, 0);
+
+        let loop_label = self.new_label("bit_loop");
+        let end_label = self.new_label("bit_end");
+        self.emit_control_label(&loop_label);
+        let cond = self.temp();
+        self.bool_cmp(">", "__c32", &i, &cond);
+        self.emit(&format!("mov @__jmp @{end_label}"));
+        self.emit_cond("=", &cond, "__zero", "__jmp");
+
+        let ax = self.temp();
+        let abit = self.temp();
+        self.floor_bit(&x, &ax, &abit);
+        let ay = self.temp();
+        let bbit = self.temp();
+        self.floor_bit(&y, &ay, &bbit);
+        self.emit(&format!("copy @{x} @{ax}"));
+        self.emit(&format!("copy @{y} @{ay}"));
+
+        let take = self.temp();
+        match op {
+            BinaryOp::BitAnd => {
+                self.emit(&format!("copy @{take} @{abit}"));
+                self.emit(&format!("xadd @{take} @{bbit}"));
+            }
+            BinaryOp::BitOr => {
+                self.emit(&format!("copy @{take} @{abit}"));
+                self.emit(&format!("add @{take} @{bbit}"));
+            }
+            BinaryOp::BitXor => {
+                self.emit(&format!("copy @{take} @{abit}"));
+                self.emit(&format!("sub @{take} @{bbit}"));
+            }
+            _ => unreachable!(),
+        }
+
+        let skip = self.new_label("bit_skip");
+        self.emit(&format!("mov @__jmp @{skip}"));
+        self.emit_cond("=", &take, "__zero", "__jmp");
+        self.emit(&format!("add @{res} @{bit}"));
+        self.emit_control_label(&skip);
+
+        self.emit(&format!("add @{bit} @{bit}"));
+        self.emit(&format!("add @{i} @__one"));
+        self.emit(&format!("mov @__jmp @{loop_label}"));
+        self.emit("goto @__jmp");
+        self.emit_control_label(&end_label);
+        self.emit(&format!("copy @{dest} @{res}"));
+        Ok(())
+    }
+
+    fn shift_count(&mut self, rhs: &str) -> String {
+        let n = self.temp();
+        self.emit(&format!("copy @{n} @{rhs}"));
+        let _ = self.binary(BinaryOp::Mod, &n, "__c32");
+        let cond = self.temp();
+        let skip = self.new_label("shift_norm");
+        self.bool_cmp(">", "__zero", &n, &cond);
+        self.emit(&format!("mov @__jmp @{skip}"));
+        self.emit_cond("=", &cond, "__zero", "__jmp");
+        self.emit(&format!("add @{n} @__c32"));
+        self.emit_control_label(&skip);
+        n
+    }
+
+    fn shift_left(&mut self, dest: &str, rhs: &str) {
+        let n = self.shift_count(rhs);
+        let loop_label = self.new_label("shl_loop");
+        let end_label = self.new_label("shl_end");
+        self.emit_control_label(&loop_label);
+        let cond = self.temp();
+        self.bool_cmp(">", &n, "__zero", &cond);
+        self.emit(&format!("mov @__jmp @{end_label}"));
+        self.emit_cond("=", &cond, "__zero", "__jmp");
+        self.emit(&format!("add @{dest} @{dest}"));
+        self.emit(&format!("sub @{n} @__one"));
+        self.emit(&format!("mov @__jmp @{loop_label}"));
+        self.emit("goto @__jmp");
+        self.emit_control_label(&end_label);
+    }
+
+    fn shift_right(&mut self, dest: &str, rhs: &str) {
+        let n = self.shift_count(rhs);
+        let loop_label = self.new_label("shr_loop");
+        let end_label = self.new_label("shr_end");
+        self.emit_control_label(&loop_label);
+        let cond = self.temp();
+        self.bool_cmp(">", &n, "__zero", &cond);
+        self.emit(&format!("mov @__jmp @{end_label}"));
+        self.emit_cond("=", &cond, "__zero", "__jmp");
+        let q = self.temp();
+        let bit = self.temp();
+        self.floor_bit(dest, &q, &bit);
+        self.emit(&format!("copy @{dest} @{q}"));
+        self.emit(&format!("sub @{n} @__one"));
+        self.emit(&format!("mov @__jmp @{loop_label}"));
+        self.emit("goto @__jmp");
+        self.emit_control_label(&end_label);
     }
 
     /// Flip a boolean cell (0 -> 1, 1 -> 0) using original `not dest,1,dest`.
@@ -1099,5 +1267,16 @@ impl Codegen {
         self.imm(dest, 0);
         self.emit_control_label(&end_label);
         Ok(())
+    }
+}
+
+fn const_bitwise(op: BinaryOp, a: i32, b: i32) -> Option<i32> {
+    match op {
+        BinaryOp::BitAnd => Some(a & b),
+        BinaryOp::BitOr => Some(a | b),
+        BinaryOp::BitXor => Some(a ^ b),
+        BinaryOp::Shl => Some(a.wrapping_shl((b as u32) & 31)),
+        BinaryOp::Shr => Some(a.wrapping_shr((b as u32) & 31)),
+        _ => None,
     }
 }

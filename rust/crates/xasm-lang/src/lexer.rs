@@ -46,6 +46,11 @@ pub enum TokenKind {
     Ge,
     AndAnd,
     Amp,
+    Bar,
+    Caret,
+    Tilde,
+    Shl,
+    Shr,
     OrOr,
     Bang,
     Plus,
@@ -98,6 +103,11 @@ impl TokenKind {
             TokenKind::Ge => "`>=`",
             TokenKind::AndAnd => "`&&`",
             TokenKind::Amp => "`&`",
+            TokenKind::Bar => "`|`",
+            TokenKind::Caret => "`^`",
+            TokenKind::Tilde => "`~`",
+            TokenKind::Shl => "`<<`",
+            TokenKind::Shr => "`>>`",
             TokenKind::OrOr => "`||`",
             TokenKind::Bang => "`!`",
             TokenKind::Plus => "`+`",
@@ -252,6 +262,8 @@ impl<'a> Lexer<'a> {
             b'-' => self.single(TokenKind::Minus, start),
             b'*' => self.single(TokenKind::Star, start),
             b'%' => self.single(TokenKind::Percent, start),
+            b'^' => self.single(TokenKind::Caret, start),
+            b'~' => self.single(TokenKind::Tilde, start),
             b'/' => self.single(TokenKind::Slash, start),
             b'!' => {
                 self.pos += 1;
@@ -260,6 +272,15 @@ impl<'a> Lexer<'a> {
                     self.token(TokenKind::NotEq, start)
                 } else {
                     self.token(TokenKind::Bang, start)
+                }
+            }
+            b'|' => {
+                self.pos += 1;
+                if self.peek(0) == Some(b'|') {
+                    self.pos += 1;
+                    self.token(TokenKind::OrOr, start)
+                } else {
+                    self.token(TokenKind::Bar, start)
                 }
             }
             b'=' => {
@@ -273,7 +294,10 @@ impl<'a> Lexer<'a> {
             }
             b'<' => {
                 self.pos += 1;
-                if self.peek(0) == Some(b'=') {
+                if self.peek(0) == Some(b'<') {
+                    self.pos += 1;
+                    self.token(TokenKind::Shl, start)
+                } else if self.peek(0) == Some(b'=') {
                     self.pos += 1;
                     self.token(TokenKind::Le, start)
                 } else {
@@ -282,7 +306,10 @@ impl<'a> Lexer<'a> {
             }
             b'>' => {
                 self.pos += 1;
-                if self.peek(0) == Some(b'=') {
+                if self.peek(0) == Some(b'>') {
+                    self.pos += 1;
+                    self.token(TokenKind::Shr, start)
+                } else if self.peek(0) == Some(b'=') {
                     self.pos += 1;
                     self.token(TokenKind::Ge, start)
                 } else {
@@ -296,19 +323,6 @@ impl<'a> Lexer<'a> {
                     self.token(TokenKind::AndAnd, start)
                 } else {
                     self.token(TokenKind::Amp, start)
-                }
-            }
-            b'|' => {
-                self.pos += 1;
-                if self.peek(0) == Some(b'|') {
-                    self.pos += 1;
-                    self.token(TokenKind::OrOr, start)
-                } else {
-                    report.error(
-                        Span::new(start, self.pos),
-                        "unknown operator `|`; did you mean `||`?",
-                    );
-                    self.next_token(report)
                 }
             }
             _ => {

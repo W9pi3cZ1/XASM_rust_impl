@@ -386,17 +386,47 @@ impl<'a, 'r> Parser<'a, 'r> {
     }
 
     fn parse_and(&mut self) -> Result<Expr, ()> {
-        let mut left = self.parse_cmp()?;
+        let mut left = self.parse_bitor()?;
         while self.check(&TokenKind::AndAnd) {
             self.advance();
-            let right = self.parse_cmp()?;
+            let right = self.parse_bitor()?;
             left = binary(BinaryOp::And, left, right);
         }
         Ok(left)
     }
 
+    fn parse_bitor(&mut self) -> Result<Expr, ()> {
+        let mut left = self.parse_bitxor()?;
+        while self.check(&TokenKind::Bar) {
+            self.advance();
+            let right = self.parse_bitxor()?;
+            left = binary(BinaryOp::BitOr, left, right);
+        }
+        Ok(left)
+    }
+
+    fn parse_bitxor(&mut self) -> Result<Expr, ()> {
+        let mut left = self.parse_bitand()?;
+        while self.check(&TokenKind::Caret) {
+            self.advance();
+            let right = self.parse_bitand()?;
+            left = binary(BinaryOp::BitXor, left, right);
+        }
+        Ok(left)
+    }
+
+    fn parse_bitand(&mut self) -> Result<Expr, ()> {
+        let mut left = self.parse_cmp()?;
+        while self.check(&TokenKind::Amp) {
+            self.advance();
+            let right = self.parse_cmp()?;
+            left = binary(BinaryOp::BitAnd, left, right);
+        }
+        Ok(left)
+    }
+
     fn parse_cmp(&mut self) -> Result<Expr, ()> {
-        let mut left = self.parse_add()?;
+        let mut left = self.parse_shift()?;
         loop {
             let op = match &self.peek().kind {
                 TokenKind::EqEq => BinaryOp::Eq,
@@ -405,6 +435,21 @@ impl<'a, 'r> Parser<'a, 'r> {
                 TokenKind::Le => BinaryOp::Le,
                 TokenKind::Gt => BinaryOp::Gt,
                 TokenKind::Ge => BinaryOp::Ge,
+                _ => break,
+            };
+            self.advance();
+            let right = self.parse_shift()?;
+            left = binary(op, left, right);
+        }
+        Ok(left)
+    }
+
+    fn parse_shift(&mut self) -> Result<Expr, ()> {
+        let mut left = self.parse_add()?;
+        loop {
+            let op = match &self.peek().kind {
+                TokenKind::Shl => BinaryOp::Shl,
+                TokenKind::Shr => BinaryOp::Shr,
                 _ => break,
             };
             self.advance();
@@ -452,6 +497,7 @@ impl<'a, 'r> Parser<'a, 'r> {
             TokenKind::Plus => Some(UnaryOp::Plus),
             TokenKind::Bang => Some(UnaryOp::Not),
             TokenKind::Amp => Some(UnaryOp::Addr),
+            TokenKind::Tilde => Some(UnaryOp::BitNot),
             _ => None,
         };
         if let Some(op) = op {

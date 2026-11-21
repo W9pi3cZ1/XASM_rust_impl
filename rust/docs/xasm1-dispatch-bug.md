@@ -75,4 +75,4 @@ community 的 `vm.c` 使用 `switch`/正确的 `else if` dispatch，不会有这
 
 - `primes.xpl`（嵌套循环）、`countdown.xpl`、`fizzbuzz.xpl`、`fib.xpl` 在原始 `XASM1` 上输出正确。
 - `memedit.xpl` 在原始 `XASM1` 上可交互运行（alt screen + 补零 + `q` 退出）。
-- `cargo test --workspace`：71 个测试通过。
+- `cargo test --workspace`：74 个测试通过。
