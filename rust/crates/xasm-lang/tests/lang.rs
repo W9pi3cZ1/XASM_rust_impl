@@ -331,3 +331,31 @@ fn utf8_readline_chinese_only_is_empty_after_backspace() {
     let (output, _) = run(source, b"\xe4\xb8\xad\x7f\n").unwrap();
     assert_eq!(output, "> 中\x08\x08  \x08\x08\n\n");
 }
+
+#[test]
+fn line_editor_inserts_at_cursor() {
+    let source = include_str!("../../../examples/xpl/readline_edit.xpl");
+    let (output, _) = run(source, b"abc\x1b[DX\n").unwrap();
+    assert!(output.ends_with("abXc\n"), "{output:?}");
+}
+
+#[test]
+fn line_editor_deletes_at_cursor() {
+    let source = include_str!("../../../examples/xpl/readline_edit.xpl");
+    let (output, _) = run(source, b"abc\x1b[D\x1b[3~\n").unwrap();
+    assert!(output.ends_with("ab\n"), "{output:?}");
+}
+
+#[test]
+fn line_editor_moves_over_utf8_codepoints() {
+    let source = include_str!("../../../examples/xpl/readline_edit.xpl");
+    let (output, _) = run(source, b"\xe4\xb8\xad\x1b[Da\n").unwrap();
+    assert!(output.ends_with("a中\n"), "{output:?}");
+}
+
+#[test]
+fn line_editor_utf8_backspace() {
+    let source = include_str!("../../../examples/xpl/readline_edit.xpl");
+    let (output, _) = run(source, b"a\xe4\xb8\xad\x7f\n").unwrap();
+    assert!(output.ends_with("a\n"), "{output:?}");
+}

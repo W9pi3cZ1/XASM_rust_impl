@@ -291,6 +291,27 @@ buffer: "a"            // 中 的 3 个字节被整体删除
 
 限制：宽度表是近似的；emoji ZWJ/变体选择符、行首换行/行宽、方向键和 ANSI 序列、Tab 等还没有完整处理。UTF-8 readline 的 ROM 也更大（约 156 KB），因为包含了 UTF-8 解码/宽度逻辑。
 
+### 带光标的行编辑器
+
+更接近 `input()` 的版本是 [../examples/xpl/readline_edit.xpl](../examples/xpl/readline_edit.xpl)：
+
+- 可打印字符插入在光标处；
+- `←` / `→` 按 codepoint 移动；
+- `Home` / `End`（`ESC[H/F`、`ESC[1~/4~`、`ESC[7~/8~`）；
+- `Backspace` 删光标前一个 codepoint；
+- `Delete`（`ESC[3~`）删光标处 codepoint；
+- `Ctrl-A/E` 行首/行尾，`Ctrl-U` 清空，`Ctrl-K` 删到行尾；
+- UTF-8 aware：CJK/emoji 按 2 列重绘，退格/删除一次处理整个 codepoint。
+
+它仍然不是完整的 Python `input()` / GNU readline：
+
+- `↑` / `↓` **没有历史记录**，目前被忽略；
+- 没有 Tab 补全、选择、剪贴板、撤销；
+- 没有跟踪终端行宽/自动换行，超长行或折行时光标重绘可能不准；
+- 没有方向键以外的 Ctrl 快捷键/搜索。
+
+实现方式是每次编辑后用 `\r`、`> `、整行内容和 `ESC[K` 重绘，再用 `ESC[<n>D` 把光标移回 `cur` 对应的显示列。
+
 `&line` 是数组基址，地址按值传给函数；函数通过 `poke`/`peek` 读写共享内存。也可以让函数直接访问全局数组，省掉 `addr` 参数：
 
 ```xpl
@@ -449,6 +470,7 @@ xplc -i <FILE> [OPTIONS]
 - `pi.xpl`（整数 spigot 算法 + 数组/函数，不断输出 pi）
 - `readline.xpl`（原始终端下带回显/退格的 ASCII readline，`&line` 传缓冲区地址）
 - `readline_utf8.xpl`（UTF-8 版：按 codepoint 退格，CJK 按 2 列擦除）
+- `readline_edit.xpl`（带光标/插入/删除/Home/End 的 UTF-8 行编辑器）
 - `memedit.xpl`（交互式内存编辑器）
 
 ## 当前限制 / 可以继续做的方向
