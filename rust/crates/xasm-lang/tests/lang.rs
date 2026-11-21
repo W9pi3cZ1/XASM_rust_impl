@@ -284,3 +284,10 @@ fn pi_example_compiles() {
     let rom = compile_rom(source).unwrap();
     assert!(!rom.is_empty());
 }
+
+#[test]
+fn readline_function() {
+    let source = include_str!("../../../examples/xpl/readline.xpl");
+    let (output, _) = run(source, b"hello\n").unwrap();
+    assert_eq!(output, "> hello\nhello\n");
+}

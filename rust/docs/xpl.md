@@ -177,6 +177,95 @@ print(a[3], "\n");   // 9
 - 数组不是一等值：不能赋值给变量，也不能作为函数参数/返回值；函数可以直接访问全局数组。
 - 数组元素和变量一样是 i32。
 
+
+### 字符串、值传递和 `readline`
+
+XPL 目前**没有字符串变量**，也没有字符串参数/返回值：
+
+```xpl
+let s = "hello";     // 报错：字符串只能作为 print/println 参数
+fn f(s) { print(s); }
+f("hello");          // 报错：字符串不能作为函数实参
+```
+
+字符串字面量只会被编译成 ROM 里的只读字节数组，直接交给 `print`/`println`。函数参数、返回值、变量和数组元素全部是 i32。
+
+所以：
+
+- **标量 i32**：值传递。`f(x)` 里改形参不会改调用方的 `x`。
+- **数组**：不是一等值，不能直接传给函数，也不能 `return` 一个数组。
+- **地址 i32**：地址本身是值传递，但通过 `peek`/`poke` 读写它指向的内存，效果类似“引用传递”。这是目前传缓冲区的方式。
+- **字符串字面量**：只读 ROM 数据，没有值/引用传递一说。
+
+一个可用的 `readline` 需要“缓冲区地址 + 容量”，返回实际长度。完整示例在 [../examples/xpl/readline.xpl](../examples/xpl/readline.xpl)：
+
+```xpl
+let base = 0x80000;   // 一块可写内存
+let cap = 128;
+
+fn readline(addr, max) {
+    let n = 0;
+    let done = 0;
+    while (done == 0) {
+        let c = read_char();
+        if (c == -1) {                 // EOF
+            done = 1;
+        } else if (c == 10 || c == 13) {
+            done = 1;
+            println();
+        } else if (c == 8 || c == 127) { // backspace
+            if (n > 0) {
+                n = n - 1;
+                putchar(8);
+                putchar(32);
+                putchar(8);
+            }
+        } else if (c >= 32 && c < 127) {
+            if (n < max) {
+                poke(addr + n, c);
+                n = n + 1;
+                putchar(c);            // raw mode 下没有自动回显
+            }
+        }
+    }
+    return n;
+}
+
+fn print_line(addr, len) {
+    let i = 0;
+    while (i < len) {
+        putchar(peek(addr + i));
+        i = i + 1;
+    }
+    println();
+}
+
+print("> ");
+let n = readline(base, cap);
+print_line(base, n);
+```
+
+要点：
+
+- `read_char()` 在 `xasm-run`/原版 `getc` 下是原始单字节读取；TTY 上不回显，所以 `readline` 自己 `putchar(c)`。
+- 回车按 `10`（LF）或 `13`（CR）结束；raw TTY 通常经 `ICRNL` 得到 LF。
+- 退格处理 `8`/`127`，先 `n--`，再输出 `\b \b` 把屏幕上的字符擦掉。
+- 只接受可打印 ASCII（32..126）。UTF-8 字节 >=128 会被忽略；方向键等 ANSI 序列也没有解析，真正的行编辑器需要额外状态机。
+- 返回的是长度，不是字符串；调用方知道缓冲区地址，用 `peek` 打印或处理。
+
+如果只有一个全局缓冲区，也可以让函数直接访问全局数组，省掉 `addr` 参数：
+
+```xpl
+let line[128];
+fn readline_global(max) {
+    ...
+    line[n] = c;
+    ...
+}
+```
+
+但这样函数只能操作这一个数组；要操作多个缓冲区，就传地址（或以后加 `&array` / 数组参数）。
+
 ### 简单 I/O
 
 ```xpl
@@ -320,6 +409,7 @@ xplc -i <FILE> [OPTIONS]
 - `input_sum.xpl`
 - `primes.xpl`
 - `pi.xpl`（整数 spigot 算法 + 数组/函数，不断输出 pi）
+- `readline.xpl`（原始终端下带回显/退格的 readline，缓冲区地址用 i32 传递）
 - `memedit.xpl`（交互式内存编辑器）
 
 ## 当前限制 / 可以继续做的方向
@@ -327,7 +417,7 @@ xplc -i <FILE> [OPTIONS]
 - 没有递归/调用栈；函数参数和局部变量是静态槽位。
 - 没有指针、结构体、数组初始化列表；数组没有越界检查。
 - 数组和函数都使用静态存储，不支持把数组/函数当一等值。
-- 字符串不是一等值，只能打印。
+- 字符串不是一等值，不能赋给变量、传参或返回；只能作为 `print`/`println` 参数。
 - 没有 `for`、`break`、`continue`。
 - `poke` 使用原版 `lm` 语义；`puthex_at` 只读显示，不修改内存。
 - `peek` 在原始 VM 上用“自修改 `lm` + 立即 restore”实现，`lm` 的第二个操作数放在 256 字节对齐的 cell 上，所以不再受 `copy` 那个“最后一个操作数字节被当成 opcode”的 bug 影响。
