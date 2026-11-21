@@ -45,6 +45,7 @@ pub enum TokenKind {
     Gt,
     Ge,
     AndAnd,
+    Amp,
     OrOr,
     Bang,
     Plus,
@@ -96,6 +97,7 @@ impl TokenKind {
             TokenKind::Gt => "`>`",
             TokenKind::Ge => "`>=`",
             TokenKind::AndAnd => "`&&`",
+            TokenKind::Amp => "`&`",
             TokenKind::OrOr => "`||`",
             TokenKind::Bang => "`!`",
             TokenKind::Plus => "`+`",
@@ -293,11 +295,7 @@ impl<'a> Lexer<'a> {
                     self.pos += 1;
                     self.token(TokenKind::AndAnd, start)
                 } else {
-                    report.error(
-                        Span::new(start, self.pos),
-                        "unknown operator `&`; did you mean `&&`?",
-                    );
-                    self.next_token(report)
+                    self.token(TokenKind::Amp, start)
                 }
             }
             b'|' => {

@@ -395,6 +395,16 @@ impl Codegen {
         self.bind_symbol(name, Symbol::Scalar(label.to_owned()));
     }
 
+    fn lookup_symbol(&mut self, name: &str, span: xasm_core::Span) -> Result<Symbol, ()> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(symbol) = scope.get(name) {
+                return Ok(symbol.clone());
+            }
+        }
+        self.report.error(span, format!("undefined name `{name}`"));
+        Err(())
+    }
+
     fn lookup(&mut self, name: &str, span: xasm_core::Span) -> Result<String, ()> {
         for scope in self.scopes.iter().rev() {
             if let Some(symbol) = scope.get(name) {
@@ -717,6 +727,7 @@ impl Codegen {
                     self.emit(&format!("sub @{dest} @{tmp}"));
                     Ok(())
                 }
+                UnaryOp::Addr => self.address_of(inner, dest),
             },
             ExprKind::Binary { op, left, right } => {
                 if matches!(op, BinaryOp::Div | BinaryOp::Mod)
@@ -833,6 +844,43 @@ impl Codegen {
         self.split_byte(&q2, &q3, &b1);
 
         [q3, b1, b2, b3]
+    }
+
+    /// Evaluate `&expr` into an i32 address cell.
+    ///
+    /// Supported forms are `&scalar`, `&array`, and `&array[index]`.  XPL has
+    /// no reference type; the result is an ordinary i32 address that can be
+    /// passed to `peek`/`poke` or to a function.
+    fn address_of(&mut self, expr: &Expr, dest: &str) -> Result<(), ()> {
+        match &expr.kind {
+            ExprKind::Var(name) => {
+                let symbol = self.lookup_symbol(name, expr.span)?;
+                match symbol {
+                    Symbol::Scalar(label) => {
+                        self.emit(&format!("mov @{dest} @{label}"));
+                    }
+                    Symbol::Array { base, .. } => {
+                        self.emit(&format!("mov @{dest} @{base}"));
+                    }
+                }
+                Ok(())
+            }
+            ExprKind::Index { name, index } => {
+                let (base, _) = self.lookup_array(name, expr.span)?;
+                let i = self.temp();
+                self.expr(index, &i)?;
+                let addr = self.array_addr(&base, &i);
+                self.emit(&format!("copy @{dest} @{addr}"));
+                Ok(())
+            }
+            _ => {
+                self.report.error(
+                    expr.span,
+                    "can only take the address of a variable, array, or array element",
+                );
+                Err(())
+            }
+        }
     }
 
     fn array_addr(&mut self, base: &str, index: &str) -> String {

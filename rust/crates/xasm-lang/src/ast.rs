@@ -108,6 +108,7 @@ pub enum UnaryOp {
     Neg,
     Not,
     Plus,
+    Addr,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

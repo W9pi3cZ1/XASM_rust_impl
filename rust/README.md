@@ -289,11 +289,11 @@ while (i <= 100) {
 # 整数 spigot 算法不断计算、输出 pi（函数 + 数组）
 ./target/release/xplc -i examples/xpl/pi.xpl -o pi.bin --run
 
-# 原始终端 readline（缓冲区地址用 i32 传递，带回显/退格）
+# 原始终端 readline（&line 取数组地址，带回显/退格）
 ./target/release/xplc -i examples/xpl/readline.xpl -o readline.bin --run
 ```
 
-XPL 还提供 `peek(addr)`、`poke(addr, value)`、`puthex_at(addr)`、`puthex(expr)`、`read_hex()`，所以可以直接写内存查看/编辑工具。`examples/xpl/memedit.xpl` 是一个可交互的内存编辑器：alternate screen + 清屏、16 字节一行、两位补零十六进制、光标反显，支持光标移动、按字节编辑和退出。它依赖 `getc` 的原始终端模式，`xasm-run` 已经实现；Rust VM 和原始 `XASM1` 上都验证过。
+XPL 还提供 `&x` / `&a` / `&a[i]` 取地址、`peek(addr)`、`poke(addr, value)`、`puthex_at(addr)`、`puthex(expr)`、`read_hex()`，所以可以直接写内存查看/编辑工具。`examples/xpl/memedit.xpl` 是一个可交互的内存编辑器：alternate screen + 清屏、16 字节一行、两位补零十六进制、光标反显，支持光标移动、按字节编辑和退出。它依赖 `getc` 的原始终端模式，`xasm-run` 已经实现；Rust VM 和原始 `XASM1` 上都验证过。
 
 XPL 的语法、语义、生成模型和限制见 [docs/xpl.md](docs/xpl.md)。它没有引入新的运行时：变量/临时变量都是数据段里的 cell，字符串用长度循环打印，函数使用静态参数/返回槽，数组是连续 cell，所有跳转共用一个 `@__jmp` cell。
 

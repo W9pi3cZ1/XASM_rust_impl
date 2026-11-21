@@ -412,6 +412,7 @@ impl<'a, 'r> Parser<'a, 'r> {
             TokenKind::Minus => Some(UnaryOp::Neg),
             TokenKind::Plus => Some(UnaryOp::Plus),
             TokenKind::Bang => Some(UnaryOp::Not),
+            TokenKind::Amp => Some(UnaryOp::Addr),
             _ => None,
         };
         if let Some(op) = op {

@@ -291,3 +291,29 @@ fn readline_function() {
     let (output, _) = run(source, b"hello\n").unwrap();
     assert_eq!(output, "> hello\nhello\n");
 }
+
+#[test]
+fn address_of_variables_and_arrays() {
+    let (output, _) = run(
+        r#"let x = 7;
+           let p = &x;
+           print(peek(p), "\n");
+           poke(p, 9);
+           print(x, "\n");
+
+           let a[3];
+           a[1] = 42;
+           let q = &a[1];
+           print(peek(q), "\n");
+           print(peek(&a), "\n");"#,
+        b"",
+    )
+    .unwrap();
+    assert_eq!(output, "7\n9\n42\n0\n");
+}
+
+#[test]
+fn address_of_temporary_is_rejected() {
+    let error = compile_rom(r#"let p = &(1 + 2);"#).unwrap_err();
+    assert!(error.contains("take the address"), "{error}");
+}

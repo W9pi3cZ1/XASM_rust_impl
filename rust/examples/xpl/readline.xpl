@@ -1,13 +1,10 @@
 // Minimal raw-terminal readline.
 //
 // XPL has no string values.  The line is stored as bytes in a caller-provided
-// memory buffer; the address is an i32 passed by value, and writes through
-// poke() make it behave like a reference to the shared buffer.
-//
-// Buffer address 0x80000 is above the code/data of this small program and
-// below the original XASM1 limit (0xffffe).
+// array; &line is an i32 address passed by value, and writes through poke()
+// make it behave like a reference to the shared buffer.
 
-let base = 0x80000;
+let line[128];
 let cap = 128;
 
 fn readline(addr, max) {
@@ -55,5 +52,5 @@ fn print_line(addr, len) {
 }
 
 print("> ");
-let n = readline(base, cap);
-print_line(base, n);
+let n = readline(&line, cap);
+print_line(&line, n);
