@@ -269,6 +269,28 @@ print_line(&line, n);
 - 只接受可打印 ASCII（32..126）。UTF-8 字节 >=128 会被忽略；方向键等 ANSI 序列也没有解析，真正的行编辑器需要额外状态机。
 - 返回的是长度，不是字符串；调用方知道缓冲区地址，用 `peek` 打印或处理。
 
+上面的 `readline.xpl` 只接受 ASCII：UTF-8 字节 >=128 会被忽略，所以输入中文不会进 buffer，也不会回显；此时按退格 `n == 0`，什么也不做。
+
+要真正支持 UTF-8，看 [../examples/xpl/readline_utf8.xpl](../examples/xpl/readline_utf8.xpl)：
+
+- buffer 里存的是 UTF-8 字节，`n` 是**字节数**，不是字符数。
+- 读到一个完整序列后才追加；非法序列直接丢弃。
+- 退格时从 `n-1` 往回跳过 continuation 字节（`0x80..0xbf`），找到序列头，算出 codepoint 的显示宽度。
+- CJK/emoji 宽度按 2 列计算，所以 `中` 的退格会输出两次 `\b`、两个空格、两次 `\b`，一次删掉整个字符和两个终端列；buffer 里也一次删掉 3 个字节。
+- 常见 combining mark 宽度按 0 处理。
+
+实际行为：
+
+```text
+输入: a中<BS><Enter>
+buffer: "a"            // 中 的 3 个字节被整体删除
+屏幕: 先显示 a中，退格擦掉中占的 2 列，然后打印 a
+```
+
+如果只输入 `中<BS><Enter>`，buffer 最终为空，屏幕回到 `> ` 后换行。
+
+限制：宽度表是近似的；emoji ZWJ/变体选择符、行首换行/行宽、方向键和 ANSI 序列、Tab 等还没有完整处理。UTF-8 readline 的 ROM 也更大（约 156 KB），因为包含了 UTF-8 解码/宽度逻辑。
+
 `&line` 是数组基址，地址按值传给函数；函数通过 `poke`/`peek` 读写共享内存。也可以让函数直接访问全局数组，省掉 `addr` 参数：
 
 ```xpl
@@ -425,7 +447,8 @@ xplc -i <FILE> [OPTIONS]
 - `input_sum.xpl`
 - `primes.xpl`
 - `pi.xpl`（整数 spigot 算法 + 数组/函数，不断输出 pi）
-- `readline.xpl`（原始终端下带回显/退格的 readline，缓冲区地址用 i32 传递）
+- `readline.xpl`（原始终端下带回显/退格的 ASCII readline，`&line` 传缓冲区地址）
+- `readline_utf8.xpl`（UTF-8 版：按 codepoint 退格，CJK 按 2 列擦除）
 - `memedit.xpl`（交互式内存编辑器）
 
 ## 当前限制 / 可以继续做的方向

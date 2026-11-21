@@ -317,3 +317,17 @@ fn address_of_temporary_is_rejected() {
     let error = compile_rom(r#"let p = &(1 + 2);"#).unwrap_err();
     assert!(error.contains("take the address"), "{error}");
 }
+
+#[test]
+fn utf8_readline_backspace_removes_whole_codepoint() {
+    let source = include_str!("../../../examples/xpl/readline_utf8.xpl");
+    let (output, _) = run(source, b"a\xe4\xb8\xad\x7f\n").unwrap();
+    assert_eq!(output, "> a中\x08\x08  \x08\x08\na\n");
+}
+
+#[test]
+fn utf8_readline_chinese_only_is_empty_after_backspace() {
+    let source = include_str!("../../../examples/xpl/readline_utf8.xpl");
+    let (output, _) = run(source, b"\xe4\xb8\xad\x7f\n").unwrap();
+    assert_eq!(output, "> 中\x08\x08  \x08\x08\n\n");
+}
